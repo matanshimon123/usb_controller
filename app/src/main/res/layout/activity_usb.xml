@@ -20,8 +20,8 @@
 
     <ScrollView
         android:id="@+id/scrollView"
-        android:layout_width="387dp"
-        android:layout_height="357dp"
+        android:layout_width="397dp"
+        android:layout_height="296dp"
         android:layout_marginStart="8dp"
         android:layout_marginTop="24dp"
         app:layout_constraintStart_toStartOf="parent"
@@ -44,8 +44,8 @@
         android:id="@+id/button_ce_2400"
         android:layout_width="180dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="84dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="164dp"
         android:text="CE 2400"
         android:textSize="20sp"
         android:textStyle="bold"
@@ -57,7 +57,7 @@
         android:layout_width="180dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
-        android:layout_marginTop="84dp"
+        android:layout_marginTop="164dp"
         android:layout_marginEnd="16dp"
         android:text="FCC 2400"
         android:textSize="20sp"
@@ -130,14 +130,16 @@
         android:text="Display Device Info"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.555"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_ce_dual" />
+        app:layout_constraintTop_toBottomOf="@+id/button_ce_dual"
+        app:layout_constraintVertical_bias="0.851" />
 
     <Button
         android:id="@+id/button_read_serial"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="DJI RC"
+        android:text="read DJI RC"
         app:layout_constraintBottom_toTopOf="@+id/button_ce_2400"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.052"
@@ -156,5 +158,17 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/scrollView"
         app:layout_constraintVertical_bias="0.083" />
+
+    <Button
+        android:id="@+id/get_country_code"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="get country"
+        app:layout_constraintBottom_toTopOf="@+id/button_ce_2400"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.055"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/button_read_serial"
+        app:layout_constraintVertical_bias="0.0" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

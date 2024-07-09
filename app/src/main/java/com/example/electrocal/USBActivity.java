@@ -41,6 +41,7 @@ import java.util.Set;
 
 public class USBActivity extends AppCompatActivity {
 
+    private UsbSerialDevice serialPort;
     private boolean shouldReadData = false;
     private UsbDeviceConnection usbConnection;
     private UsbEndpoint endpointIn;
@@ -108,6 +109,7 @@ public class USBActivity extends AppCompatActivity {
         Button refresh_usb_connection_button = findViewById(R.id.button_refresh);
         Button read_serial_dji_button = findViewById(R.id.button_read_serial);
         Button read_serial_arduino_button = findViewById(R.id.button_read_serial_arduino);
+        Button get_country_code_button = findViewById(R.id.get_country_code);
 
         // Check for existing devices
         checkForNewDevices();
@@ -115,7 +117,7 @@ public class USBActivity extends AppCompatActivity {
         // Setup button listeners
         setupButtonListeners(ce_2400_button, ce_5800_button, ce_dual_button,
                 fcc_2400_button, fcc_5800_button, fcc_dual_button,
-                refresh_usb_connection_button, read_serial_dji_button , read_serial_arduino_button);
+                refresh_usb_connection_button, read_serial_dji_button , read_serial_arduino_button, get_country_code_button);
     }
 
     @Override
@@ -143,7 +145,7 @@ public class USBActivity extends AppCompatActivity {
 
     private void setupButtonListeners(Button ce_2400_button, Button ce_5800_button, Button ce_dual_button,
                                       Button fcc_2400_button, Button fcc_5800_button, Button fcc_dual_button,
-                                      Button refresh_usb_connection_button, Button read_serial_dji_button,Button read_serial_arduino_button) {
+                                      Button refresh_usb_connection_button, Button read_serial_dji_button,Button read_serial_arduino_button, Button get_country_code_button) {
 
         ce_2400_button.setOnClickListener(v -> {
             resetButtonColors();
@@ -245,7 +247,14 @@ public class USBActivity extends AppCompatActivity {
             }
         });
 
+        get_country_code_button.setOnClickListener(v -> {
+            String hexString = "550d04330a092d004007191dd2";
+            byte[] command = hexStringToByteArray(hexString);
+            sendSerialCommand(command);
+
+        });
     }
+
 
     private void resetButtonColors() {
         Button[] buttons = {findViewById(R.id.button_ce_2400), findViewById(R.id.button_ce_5800),
@@ -301,13 +310,13 @@ public class USBActivity extends AppCompatActivity {
     private void readDataFromUsb() {
         if (shouldReadData) {
             if (endpointIn == null) {
-                usbInfoTextView.setText("Error: No input endpoint");
+                runOnUiThread(() -> usbInfoTextView.setText("Error: No input endpoint"));
                 return;
             }
 
             // Buffer size for reading data
             byte[] buffer = new byte[endpointIn.getMaxPacketSize()];
-            int maxAttempts = 3;
+            int maxAttempts = 1;
             int attempt = 0;
             boolean bulkSuccess = false;
 
@@ -322,7 +331,7 @@ public class USBActivity extends AppCompatActivity {
                         hexData.append(String.format("%02X", buffer[i]));
                     }
                     String finalData = hexData.toString();
-                    runOnUiThread(() -> usbInfoTextView.setText("Data received: " + finalData));
+                    runOnUiThread(() -> usbInfoTextView.append("\nData received: " + finalData)); // Append instead of setText
                     bulkSuccess = true;
                 } else if (bytesRead == 0) {
                     Log.d("USB", "No data received on attempt " + (attempt + 1));
@@ -331,6 +340,7 @@ public class USBActivity extends AppCompatActivity {
                 }
 
                 if (bulkSuccess) {
+                    usbInfoTextView.append("\nBulk transfer establish");
                     break; // Exit the loop if data was successfully read
                 }
 
@@ -343,8 +353,10 @@ public class USBActivity extends AppCompatActivity {
             }
 
             // If bulk transfer failed, attempt to establish a serial connection
+
             if (!bulkSuccess) {
                 runOnUiThread(() -> {
+                    usbInfoTextView.append("\nBulk transfer failed");
                     usbInfoTextView.append("\nAttempting to establish a serial connection...");
                 });
                 openSerialConnection(usbDevice);
@@ -356,6 +368,16 @@ public class USBActivity extends AppCompatActivity {
         }
     }
 
+    private void sendSerialCommand(byte[] command) {
+        openSerialConnection(usbDevice);
+        // Write the command
+        usbInfoTextView.setText("Sending Command....");  // Update UI to indicate command sending
+//        serialPort.write(command);
+
+        // Optionally, you can read the response immediately after sending the command
+        // Uncomment the line below if you want to read the response immediately
+//         serialPort.read(mCallback);
+    }
 
     private void handleUsbDeviceConnection() {
         Log.d("USB", "Handling USB device connection");
@@ -433,7 +455,7 @@ public class USBActivity extends AppCompatActivity {
         if (serialPort != null) {
             if (serialPort.open()) {
                 // Set Serial Connection Parameters
-                serialPort.setBaudRate(9600);
+                serialPort.setBaudRate(115200);
                 serialPort.setDataBits(UsbSerialInterface.DATA_BITS_8);
                 serialPort.setStopBits(UsbSerialInterface.STOP_BITS_1);
                 serialPort.setParity(UsbSerialInterface.PARITY_NONE);
@@ -454,6 +476,13 @@ public class USBActivity extends AppCompatActivity {
         }
     }
 
+    private void closeSerialPort() {
+        if (serialPort != null && serialPort.isOpen()) {
+            serialPort.close();
+            Log.d("Serial", "Serial port closed");
+        }
+    }
+
     // Callback for serial data received
     private final UsbSerialInterface.UsbReadCallback mCallback = new UsbSerialInterface.UsbReadCallback() {
         @Override
@@ -465,9 +494,13 @@ public class USBActivity extends AppCompatActivity {
             }
             String receivedData = hexData.toString();
             Log.d("USB", "Received data: " + receivedData);
-            runOnUiThread(() -> usbInfoTextView.setText("Serial data received: " + receivedData));
+            runOnUiThread(() -> usbInfoTextView.append("\nReceived data: " + receivedData));
+
+//             Optionally, close the serial port after receiving data
+            closeSerialPort();
         }
     };
+
 
     private class ReadDataThread extends Thread {
         @Override
@@ -484,6 +517,15 @@ public class USBActivity extends AppCompatActivity {
         }
     }
 
+    private byte[] hexStringToByteArray(String hexString) {
+        int len = hexString.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2) {
+            data[i / 2] = (byte) ((Character.digit(hexString.charAt(i), 16) << 4)
+                    + Character.digit(hexString.charAt(i+1), 16));
+        }
+        return data;
+    }
 
 
 
