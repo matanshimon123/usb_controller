@@ -49,7 +49,7 @@ public class T_Att_Activity extends AppCompatActivity {
             R2_result.setText("R2: " + String.format("%.4f", R2));
 
         } else {
-            // Show a toast message
+            // Show a toast message (upload to git worked)
             Toast.makeText(getApplicationContext(), "Check values", Toast.LENGTH_SHORT).show();
         }
 
