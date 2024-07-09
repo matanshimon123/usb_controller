@@ -41,6 +41,7 @@ import java.util.Set;
 
 public class USBActivity extends AppCompatActivity {
 
+    private boolean connectionEstablished = false;
     private UsbSerialDevice serialPort;
     private boolean shouldReadData = false;
     private UsbDeviceConnection usbConnection;
@@ -305,10 +306,8 @@ public class USBActivity extends AppCompatActivity {
     }
 
 
-
-
     private void readDataFromUsb() {
-        if (shouldReadData) {
+        if (shouldReadData && !connectionEstablished) {
             if (endpointIn == null) {
                 runOnUiThread(() -> usbInfoTextView.setText("Error: No input endpoint"));
                 return;
@@ -316,13 +315,13 @@ public class USBActivity extends AppCompatActivity {
 
             // Buffer size for reading data
             byte[] buffer = new byte[endpointIn.getMaxPacketSize()];
-            int maxAttempts = 1;
+            int maxAttempts = 3;
             int attempt = 0;
             boolean bulkSuccess = false;
 
             // Loop to attempt reading data from bulk transfer
             while (attempt < maxAttempts) {
-                int bytesRead = usbConnection.bulkTransfer(endpointIn, buffer, buffer.length, 10000); // Increased timeout
+                int bytesRead = usbConnection.bulkTransfer(endpointIn, buffer, buffer.length, 5000); // Increased timeout
 
                 if (bytesRead > 0) {
                     // Convert received bytes to hexadecimal format
@@ -340,11 +339,14 @@ public class USBActivity extends AppCompatActivity {
                 }
 
                 if (bulkSuccess) {
+                    connectionEstablished = true;
                     usbInfoTextView.append("\nBulk transfer establish");
                     break; // Exit the loop if data was successfully read
                 }
 
                 attempt++;
+                int attemptCopy = attempt;
+                runOnUiThread(() -> usbInfoTextView.append("\nAttempt number " + (attemptCopy) + " to read data from bulk transfer."));
                 try {
                     Thread.sleep(1000); // Wait for 1 second before next attempt
                 } catch (InterruptedException e) {
@@ -356,6 +358,7 @@ public class USBActivity extends AppCompatActivity {
 
             if (!bulkSuccess) {
                 runOnUiThread(() -> {
+                    clearTextView();
                     usbInfoTextView.append("\nBulk transfer failed");
                     usbInfoTextView.append("\nAttempting to establish a serial connection...");
                 });
@@ -452,7 +455,7 @@ public class USBActivity extends AppCompatActivity {
         }
 
         serialPort = UsbSerialDevice.createUsbSerialDevice(device, connection);
-        if (serialPort != null) {
+        if (serialPort != null && serialPort.open()) {
             if (serialPort.open()) {
                 // Set Serial Connection Parameters
                 serialPort.setBaudRate(115200);
@@ -463,9 +466,9 @@ public class USBActivity extends AppCompatActivity {
 
                 // Set a callback for received data
                 serialPort.read(mCallback);
-
+                connectionEstablished = true;
                 Log.d("USB", "Serial connection opened.");
-                runOnUiThread(() -> usbInfoTextView.append("\nSerial connection opened."));
+                runOnUiThread(() -> usbInfoTextView.append("\nSerial connection opened.\n"));
             } else {
                 Log.e("USB", "Could not open serial port.");
                 runOnUiThread(() -> usbInfoTextView.append("\nCould not open serial port."));
@@ -505,14 +508,20 @@ public class USBActivity extends AppCompatActivity {
     private class ReadDataThread extends Thread {
         @Override
         public void run() {
-            for (int i = 0; i < 5; i++) { // Try reading 5 times
+            for (int i = 0; i < 5 && !connectionEstablished; i++) {
                 shouldReadData = true;
                 readDataFromUsb();
+                if (connectionEstablished) {
+                    break; // Exit the loop if a connection is established
+                }
                 try {
-                    Thread.sleep(1000); // Wait for 1 second between reads
+                    Thread.sleep(1000);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
+            }
+            if (!connectionEstablished) {
+                runOnUiThread(() -> usbInfoTextView.append("\nFailed to establish a connection after 5 attempts."));
             }
         }
     }
