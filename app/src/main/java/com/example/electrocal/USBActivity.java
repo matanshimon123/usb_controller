@@ -30,7 +30,6 @@ import com.hoho.android.usbserial.driver.UsbSerialProber;
 
 import com.felhr.usbserial.UsbSerialDevice;
 import com.felhr.usbserial.UsbSerialInterface;
-import java.nio.charset.StandardCharsets;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -250,8 +249,7 @@ public class USBActivity extends AppCompatActivity {
 
         get_country_code_button.setOnClickListener(v -> {
             String hexString = "550d04330a092d004007191dd2";
-            byte[] command = hexStringToByteArray(hexString);
-            sendSerialCommand(command);
+            sendSerialCommand(hexString);
 
         });
     }
@@ -313,6 +311,7 @@ public class USBActivity extends AppCompatActivity {
                 return;
             }
 
+
             // Buffer size for reading data
             byte[] buffer = new byte[endpointIn.getMaxPacketSize()];
             int maxAttempts = 3;
@@ -371,15 +370,101 @@ public class USBActivity extends AppCompatActivity {
         }
     }
 
-    private void sendSerialCommand(byte[] command) {
+    private void sendSerialCommand(String hexString) {
+        Log.d("USB", "Attempting to open serial connection");
         openSerialConnection(usbDevice);
-        // Write the command
-        usbInfoTextView.setText("Sending Command....");  // Update UI to indicate command sending
-//        serialPort.write(command);
 
-        // Optionally, you can read the response immediately after sending the command
-        // Uncomment the line below if you want to read the response immediately
-//         serialPort.read(mCallback);
+        // Add a small delay to allow the port to open
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        if (serialPort == null) {
+            Log.e("USB", "serialPort is null");
+            usbInfoTextView.append("\nError: serialPort is null");
+            return;
+        }
+
+        try {
+            byte[] command = hexStringToByteArray(hexString);
+            Log.d("USB", "Attempting to write command: " + hexString);
+            serialPort.write(command);
+            Log.d("USB", "Command written successfully");
+            usbInfoTextView.append("\nCommand sent successfully: " + hexString);
+
+            // Read the response
+            readResponse();
+        } catch (Exception e) {
+            Log.e("USB", "Error writing to serialPort: " + e.getMessage());
+            e.printStackTrace();
+            usbInfoTextView.append("\nError sending command: " + e.getMessage());
+        }
+    }
+
+    private static final byte[] PATTERN_TO_FIND = new byte[]{0x07, 0x19, 0x00};
+    private boolean patternFound = false;
+
+    private void readResponse() {
+        patternFound = false;
+        serialPort.read(new UsbSerialInterface.UsbReadCallback() {
+            @Override
+            public void onReceivedData(byte[] data) {
+                String response = bytesToHex(data);
+                Log.d("USB", "Received response: " + response);
+
+                if (containsPattern(data, PATTERN_TO_FIND)) {
+                    patternFound = true;
+                    String message = "Pattern found: " + bytesToHex(PATTERN_TO_FIND);
+                    Log.d("USB", message);
+                    runOnUiThread(() -> {
+                        usbInfoTextView.append("\n" + response);
+                        usbInfoTextView.append("\nStopping read operation.");
+                    });
+                    serialPort.close();
+                } else {
+                    runOnUiThread(() -> usbInfoTextView.append("\nReceived response: " + response));
+                }
+            }
+        });
+
+        // Wait and check for pattern
+        for (int i = 0; i < 10 && !patternFound; i++) {  // Wait for up to 5 seconds
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+
+        if (!patternFound) {
+            runOnUiThread(() -> usbInfoTextView.append("\nPattern not found after timeout."));
+        }
+    }
+
+    private boolean containsPattern(byte[] data, byte[] pattern) {
+        for (int i = 0; i <= data.length - pattern.length; i++) {
+            boolean found = true;
+            for (int j = 0; j < pattern.length; j++) {
+                if (data[i + j] != pattern[j]) {
+                    found = false;
+                    break;
+                }
+            }
+            if (found) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder hex = new StringBuilder();
+        for (byte b : bytes) {
+            hex.append(String.format("%02X", b));
+        }
+        return hex.toString();
     }
 
     private void handleUsbDeviceConnection() {
@@ -442,21 +527,23 @@ public class USBActivity extends AppCompatActivity {
         usbInfoTextView.setText("USB connection established successfully");
     }
 
-
     private void openSerialConnection(UsbDevice device) {
         UsbManager usbManager = (UsbManager) getSystemService(Context.USB_SERVICE);
-        UsbSerialDevice serialPort;
         UsbDeviceConnection connection = usbManager.openDevice(device);
 
         if (connection == null) {
             Log.e("USB", "Cannot open connection to device.");
-            runOnUiThread(() -> usbInfoTextView.setText("Cannot open connection to device."));
+            runOnUiThread(() -> usbInfoTextView.append("\nCannot open connection to device."));
             return;
         }
 
         serialPort = UsbSerialDevice.createUsbSerialDevice(device, connection);
-        if (serialPort != null && serialPort.open()) {
-            if (serialPort.open()) {
+        if (serialPort != null) {
+            boolean opened = serialPort.open();
+            Log.d("USB", "Attempt to open serial port: " + (opened ? "successful" : "failed"));
+            runOnUiThread(() -> usbInfoTextView.append("\nAttempt to open serial port: " + (opened ? "successful" : "failed")));
+
+            if (opened) {
                 // Set Serial Connection Parameters
                 serialPort.setBaudRate(115200);
                 serialPort.setDataBits(UsbSerialInterface.DATA_BITS_8);
@@ -464,14 +551,12 @@ public class USBActivity extends AppCompatActivity {
                 serialPort.setParity(UsbSerialInterface.PARITY_NONE);
                 serialPort.setFlowControl(UsbSerialInterface.FLOW_CONTROL_OFF);
 
-                // Set a callback for received data
-                serialPort.read(mCallback);
-                connectionEstablished = true;
                 Log.d("USB", "Serial connection opened.");
                 runOnUiThread(() -> usbInfoTextView.append("\nSerial connection opened.\n"));
             } else {
                 Log.e("USB", "Could not open serial port.");
                 runOnUiThread(() -> usbInfoTextView.append("\nCould not open serial port."));
+                serialPort = null;  // Set to null if we couldn't open it
             }
         } else {
             Log.e("USB", "No driver for the given device.");
@@ -504,7 +589,6 @@ public class USBActivity extends AppCompatActivity {
         }
     };
 
-
     private class ReadDataThread extends Thread {
         @Override
         public void run() {
@@ -535,123 +619,6 @@ public class USBActivity extends AppCompatActivity {
         }
         return data;
     }
-
-
-
-
-//    private void readDataFromUsb() {
-//        if (shouldReadData) {
-//            if (endpointIn == null) {
-//                usbInfoTextView.setText("Error: No input endpoint");
-//                return;
-//            }
-//
-//            byte[] buffer = new byte[endpointIn.getMaxPacketSize()];
-//            int maxAttempts = 3;
-//            int attempt = 0;
-//
-//            while (attempt < maxAttempts) {
-//                int bytesRead = usbConnection.bulkTransfer(endpointIn, buffer, buffer.length, 10000); // Increased timeout
-//
-//                if (bytesRead > 0) {
-//                    StringBuilder hexData = new StringBuilder();
-//                    for (int i = 0; i < bytesRead; i++) {
-//                        hexData.append(String.format("%02X", buffer[i]));
-//                    }
-//                    String finalData = hexData.toString();
-//                    runOnUiThread(() -> usbInfoTextView.setText("Data received: " + finalData));
-//                    break;
-//                } else if (bytesRead == 0) {
-//                    Log.d("USB", "No data received on attempt " + (attempt + 1));
-//                } else {
-//                    Log.e("USB", "Bulk transfer failed with code: " + bytesRead + " on attempt " + (attempt + 1));
-//                }
-//
-//                attempt++;
-//                try {
-//                    Thread.sleep(1000); // Wait for 1 second before next attempt
-//                } catch (InterruptedException e) {
-//                    e.printStackTrace();
-//                }
-//            }
-//
-//            if (attempt == maxAttempts) {
-//                runOnUiThread(() -> {
-//                    usbInfoTextView.setText("Error: Failed to read data after " + maxAttempts + " attempts\n");
-//                    usbInfoTextView.append("Endpoint address: " + endpointIn.getAddress() + "\n");
-//                    usbInfoTextView.append("Endpoint direction: " + endpointIn.getDirection() + "\n");
-//                    usbInfoTextView.append("Endpoint type: " + endpointIn.getType());
-//                });
-//            }
-//
-//            shouldReadData = false;
-//        } else {
-//            Log.d("USB", "shouldReadData is false");
-//        }
-//    }
-//
-//    private void handleUsbDeviceConnection() {
-//        Log.d("USB", "Handling USB device connection");
-//        if (usbDevice == null) {
-//            Log.e("USB", "No USB device selected");
-//            usbInfoTextView.setText("No USB device selected");
-//            return;
-//        }
-//
-//        Log.d("USB", "Device: " + usbDevice.getDeviceName() + ", VendorId: " + usbDevice.getVendorId() + ", ProductId: " + usbDevice.getProductId());
-//
-//        UsbInterface usbInterface = null;
-//        for (int i = 0; i < usbDevice.getInterfaceCount(); i++) {
-//            usbInterface = usbDevice.getInterface(i);
-//            Log.d("USB", "Interface " + i + ": " + usbInterface.getId() + ", Endpoint Count: " + usbInterface.getEndpointCount());
-//
-//            for (int j = 0; j < usbInterface.getEndpointCount(); j++) {
-//                UsbEndpoint endpoint = usbInterface.getEndpoint(j);
-//                Log.d("USB", "Endpoint " + j + ": Direction: " + (endpoint.getDirection() == UsbConstants.USB_DIR_IN ? "IN" : "OUT") +
-//                        ", Type: " + endpoint.getType() + ", Address: " + endpoint.getAddress());
-//                if (endpoint.getDirection() == UsbConstants.USB_DIR_IN &&
-//                        endpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
-//                    endpointIn = endpoint;
-//                    Log.d("USB", "Found IN endpoint");
-//                }
-//            }
-//            if (endpointIn != null) break;
-//        }
-//
-//        if (endpointIn == null) {
-//            Log.e("USB", "Could not find IN endpoint");
-//            usbInfoTextView.setText("Could not find IN endpoint");
-//            return;
-//        }
-//
-//        usbConnection = usbManager.openDevice(usbDevice);
-//        if (usbConnection == null) {
-//            Log.e("USB", "Could not open USB connection");
-//            usbInfoTextView.setText("Could not open USB connection");
-//            return;
-//        }
-//
-//        boolean claimed = usbConnection.claimInterface(usbInterface, true);
-//        if (!claimed) {
-//            Log.e("USB", "Failed to claim interface");
-//            usbInfoTextView.setText("Failed to claim interface");
-//            usbConnection.close();
-//            usbConnection = null;
-//            return;
-//        }
-//
-//        Log.d("USB", "USB connection established successfully");
-//        usbInfoTextView.setText("USB connection established successfully");
-//    }
-//
-
-
-
-
-
-
-
-
 
     private void resetDevice() {
         if (usbConnection != null) {
